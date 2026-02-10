@@ -10,6 +10,14 @@ import {
   getLists,
   getTasks,
   getTask,
+  getTaskComments,
+  createTaskComment,
+  updateComment,
+  deleteComment,
+  createTask,
+  updateTask,
+  deleteTask,
+  createSubtask,
   getAllListsInSpace,
   ClickUpApiError,
 } from '../clickup/client.js';
@@ -32,20 +40,241 @@ export function createMcpServer(): McpServer {
     'get_clickup_task',
     {
       description:
-        'FASTEST: Get one task by task_id. Use whenever the user has a task link (e.g. https://app.clickup.com/t/86c6p1ach → task_id 86c6p1ach) or task ID. One API call, no list_id or space_id needed. Returns full task (name, status, description, list context). Prefer this over list-based search when a task ID is available.',
+        'FASTEST: Get one task by task_id (name, status, description, list, assignees, custom fields, attachments). Set include_subtasks=true to get subtasks in the response.',
       inputSchema: {
-        task_id: z.string().describe('ClickUp task ID: from URL path after /t/ (e.g. 86c6p1ach) or from API'),
+        task_id: z.string().describe('ClickUp task ID (e.g. from URL .../t/86c6p1ach)'),
+        include_subtasks: z.boolean().optional().describe('If true, response includes subtasks array'),
       },
     },
     async (args) => {
       try {
-        const task = await getTask(args.task_id);
+        const task = await getTask(args.task_id, { include_subtasks: args.include_subtasks });
         return toolResultText(JSON.stringify(task, null, 2));
       } catch (err) {
         if (err instanceof ClickUpApiError) {
           if (err.statusCode === 404 || err.statusCode === 400) {
             return toolResultError('Task not found or invalid task_id');
           }
+          return toolResultError(err.message);
+        }
+        return toolResultError(String(err));
+      }
+    }
+  );
+
+  server.registerTool(
+    'get_clickup_task_comments',
+    {
+      description: 'Get comments for a task (newest first). Optional pagination: start (timestamp ms), start_id from last comment.',
+      inputSchema: {
+        task_id: z.string().describe('ClickUp task ID'),
+        start: z.number().optional().describe('Pagination: timestamp in ms'),
+        start_id: z.string().optional().describe('Pagination: id of last comment from previous page'),
+      },
+    },
+    async (args) => {
+      try {
+        const data = await getTaskComments(args.task_id, {
+          start: args.start,
+          start_id: args.start_id,
+        });
+        return toolResultText(JSON.stringify(data.comments ?? [], null, 2));
+      } catch (err) {
+        if (err instanceof ClickUpApiError) {
+          return toolResultError(err.message);
+        }
+        return toolResultError(String(err));
+      }
+    }
+  );
+
+  server.registerTool(
+    'create_clickup_comment',
+    {
+      description: 'Add a comment to a task.',
+      inputSchema: {
+        task_id: z.string().describe('ClickUp task ID'),
+        comment_text: z.string().describe('Comment content (plain text)'),
+      },
+    },
+    async (args) => {
+      try {
+        const comment = await createTaskComment(args.task_id, args.comment_text);
+        return toolResultText(JSON.stringify(comment, null, 2));
+      } catch (err) {
+        if (err instanceof ClickUpApiError) {
+          return toolResultError(err.message);
+        }
+        return toolResultError(String(err));
+      }
+    }
+  );
+
+  server.registerTool(
+    'update_clickup_comment',
+    {
+      description: 'Update an existing comment by comment_id (from get_clickup_task_comments).',
+      inputSchema: {
+        comment_id: z.string().describe('ClickUp comment ID'),
+        comment_text: z.string().describe('New comment content'),
+      },
+    },
+    async (args) => {
+      try {
+        const comment = await updateComment(args.comment_id, args.comment_text);
+        return toolResultText(JSON.stringify(comment, null, 2));
+      } catch (err) {
+        if (err instanceof ClickUpApiError) {
+          return toolResultError(err.message);
+        }
+        return toolResultError(String(err));
+      }
+    }
+  );
+
+  server.registerTool(
+    'delete_clickup_comment',
+    {
+      description: 'Delete a comment by comment_id.',
+      inputSchema: {
+        comment_id: z.string().describe('ClickUp comment ID'),
+      },
+    },
+    async (args) => {
+      try {
+        await deleteComment(args.comment_id);
+        return toolResultText('Comment deleted.');
+      } catch (err) {
+        if (err instanceof ClickUpApiError) {
+          return toolResultError(err.message);
+        }
+        return toolResultError(String(err));
+      }
+    }
+  );
+
+  server.registerTool(
+    'get_clickup_subtasks',
+    {
+      description: 'Get subtasks of a task. Returns the task with a subtasks array (if any).',
+      inputSchema: {
+        task_id: z.string().describe('Parent task ID'),
+      },
+    },
+    async (args) => {
+      try {
+        const task = await getTask(args.task_id, { include_subtasks: true });
+        return toolResultText(JSON.stringify(task, null, 2));
+      } catch (err) {
+        if (err instanceof ClickUpApiError) {
+          return toolResultError(err.message);
+        }
+        return toolResultError(String(err));
+      }
+    }
+  );
+
+  server.registerTool(
+    'create_clickup_task',
+    {
+      description: 'Create a new task in a list. For subtask use create_clickup_subtask instead.',
+      inputSchema: {
+        list_id: z.string().describe('ClickUp list ID'),
+        name: z.string().describe('Task name'),
+        description: z.string().optional().describe('Task description'),
+        status: z.string().optional().describe('Status name'),
+        priority: z.number().optional().describe('1=Urgent, 2=High, 3=Normal, 4=Low'),
+      },
+    },
+    async (args) => {
+      try {
+        const task = await createTask(args.list_id, {
+          name: args.name,
+          description: args.description,
+          status: args.status,
+          priority: args.priority,
+        });
+        return toolResultText(JSON.stringify(task, null, 2));
+      } catch (err) {
+        if (err instanceof ClickUpApiError) {
+          return toolResultError(err.message);
+        }
+        return toolResultError(String(err));
+      }
+    }
+  );
+
+  server.registerTool(
+    'create_clickup_subtask',
+    {
+      description: 'Create a subtask under a parent task. Only name required; list is taken from parent.',
+      inputSchema: {
+        parent_task_id: z.string().describe('Parent task ID'),
+        name: z.string().describe('Subtask name'),
+        description: z.string().optional().describe('Subtask description'),
+      },
+    },
+    async (args) => {
+      try {
+        const task = await createSubtask(
+          args.parent_task_id,
+          args.name,
+          args.description
+        );
+        return toolResultText(JSON.stringify(task, null, 2));
+      } catch (err) {
+        if (err instanceof ClickUpApiError) {
+          return toolResultError(err.message);
+        }
+        return toolResultError(String(err));
+      }
+    }
+  );
+
+  server.registerTool(
+    'update_clickup_task',
+    {
+      description: 'Update a task: name, description, status, priority. Only send fields to change.',
+      inputSchema: {
+        task_id: z.string().describe('ClickUp task ID'),
+        name: z.string().optional().describe('New task name'),
+        description: z.string().optional().describe('New description'),
+        status: z.string().optional().describe('Status name'),
+        priority: z.number().optional().describe('1=Urgent, 2=High, 3=Normal, 4=Low'),
+      },
+    },
+    async (args) => {
+      try {
+        const body: Record<string, unknown> = {};
+        if (args.name !== undefined) body.name = args.name;
+        if (args.description !== undefined) body.description = args.description;
+        if (args.status !== undefined) body.status = args.status;
+        if (args.priority !== undefined) body.priority = args.priority;
+        const task = await updateTask(args.task_id, body);
+        return toolResultText(JSON.stringify(task, null, 2));
+      } catch (err) {
+        if (err instanceof ClickUpApiError) {
+          return toolResultError(err.message);
+        }
+        return toolResultError(String(err));
+      }
+    }
+  );
+
+  server.registerTool(
+    'delete_clickup_task',
+    {
+      description: 'Delete a task or subtask. Irreversible.',
+      inputSchema: {
+        task_id: z.string().describe('ClickUp task ID (or subtask ID)'),
+      },
+    },
+    async (args) => {
+      try {
+        await deleteTask(args.task_id);
+        return toolResultText('Task deleted.');
+      } catch (err) {
+        if (err instanceof ClickUpApiError) {
           return toolResultError(err.message);
         }
         return toolResultError(String(err));

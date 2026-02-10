@@ -34,10 +34,27 @@ MCP (Model Context Protocol) server that bridges the Lovable Agent to the ClickU
 
 ## Tools
 
-- **`get_clickup_task`** – **Schnellster Weg:** Einzelnen Task per `task_id`. Wenn der User einen Task-Link (z.B. `https://app.clickup.com/t/86c6p1ach`) oder eine Task-ID hat → sofort `get_clickup_task(task_id: "86c6p1ach")` aufrufen. Keine list_id nötig, eine API-Anfrage.
-- **`get_clickup_tasks_by_list_name`** – Alle Tasks einer Liste nach Namen im Space (inkl. folderlose Listen wie „Automatisierungen“). Parameter: `space_id`, `list_name` (z.B. space_id `90153503821`, list_name `Automatisierungen`).
-- **`list_clickup_lists_in_space`** – Alle Listen im Space (folderlos + in Foldern). Liefert `list_id` und Namen für `get_clickup_tasks` oder zur Auswahl der richtigen Liste.
+- **`get_clickup_task`** – Einzelnen Task per `task_id` (inkl. Beschreibung, Status, Liste, Assignees, Custom Fields, Attachments). Optional `include_subtasks=true` für Unteraufgaben.
+- **`get_clickup_tasks_by_list_name`** – Alle Tasks einer Liste nach Namen im Space (inkl. folderlose Listen).
+- **`list_clickup_lists_in_space`** – Alle Listen im Space (folderlos + in Foldern).
 - `get_clickup_tasks` – Tasks einer Liste per `list_id` (optional: `page`, `status`).
+
+**Comments**
+- `get_clickup_task_comments` – Kommentare eines Tasks (newest first, optional Pagination).
+- `create_clickup_comment` – Kommentar zu einem Task hinzufügen.
+- `update_clickup_comment` – Kommentar bearbeiten (comment_id, comment_text).
+- `delete_clickup_comment` – Kommentar löschen.
+
+**Subtasks**
+- `get_clickup_subtasks` – Unteraufgaben eines Tasks (Task inkl. `subtasks`-Array).
+- `create_clickup_subtask` – Unteraufgabe anlegen (parent_task_id, name, description optional). List wird aus Parent übernommen.
+
+**Task CRUD**
+- `create_clickup_task` – Task in einer Liste anlegen (list_id, name, description, status, priority optional).
+- `update_clickup_task` – Task bearbeiten (name, description, status, priority – nur geänderte Felder mitsenden).
+- `delete_clickup_task` – Task oder Unteraufgabe löschen (endgültig).
+
+**Navigation**
 - `list_clickup_teams` – Teams (Workspaces).
 - `list_clickup_spaces` – Spaces in einem Team.
 - `list_clickup_folders` – Folders in einem Space. **Parameter: `space_id`**.

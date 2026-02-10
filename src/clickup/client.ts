@@ -120,9 +120,114 @@ export async function getTasks(
   return request<ClickUpTasksResponse>(path);
 }
 
-/** GET /task/{task_id} - single task by ID (e.g. from task URL). */
-export async function getTask(taskId: string): Promise<ClickUpTask> {
-  return request<ClickUpTask>(`/task/${encodeURIComponent(taskId)}`);
+/** GET /task/{task_id} - single task by ID. Optionally include subtasks. */
+export async function getTask(
+  taskId: string,
+  opts?: { include_subtasks?: boolean }
+): Promise<ClickUpTask> {
+  const params = new URLSearchParams();
+  if (opts?.include_subtasks) params.set('include_subtasks', 'true');
+  const q = params.toString();
+  const path = `/task/${encodeURIComponent(taskId)}${q ? `?${q}` : ''}`;
+  return request<ClickUpTask>(path);
+}
+
+/** GET /task/{task_id}/comment - task comments (newest first). Pagination: start (ms), start_id from previous response. */
+export interface ClickUpComment {
+  id: string;
+  comment_text?: string;
+  user?: { id?: number; username?: string };
+  date?: number;
+  [key: string]: unknown;
+}
+export async function getTaskComments(
+  taskId: string,
+  opts?: { start?: number; start_id?: string }
+): Promise<{ comments: ClickUpComment[] }> {
+  const params = new URLSearchParams();
+  if (opts?.start != null) params.set('start', String(opts.start));
+  if (opts?.start_id) params.set('start_id', opts.start_id);
+  const q = params.toString();
+  const path = `/task/${encodeURIComponent(taskId)}/comment${q ? `?${q}` : ''}`;
+  return request<{ comments: ClickUpComment[] }>(path);
+}
+
+/** POST /task/{task_id}/comment - add comment. */
+export async function createTaskComment(
+  taskId: string,
+  commentText: string
+): Promise<ClickUpComment> {
+  return request<ClickUpComment>(`/task/${encodeURIComponent(taskId)}/comment`, {
+    method: 'POST',
+    body: JSON.stringify({ comment_text: commentText }),
+  });
+}
+
+/** PUT /comment/{comment_id} - update comment content. */
+export async function updateComment(
+  commentId: string,
+  commentText: string
+): Promise<ClickUpComment> {
+  return request<ClickUpComment>(`/comment/${encodeURIComponent(commentId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ comment_text: commentText }),
+  });
+}
+
+/** DELETE /comment/{comment_id} - delete comment. */
+export async function deleteComment(commentId: string): Promise<void> {
+  await request<void>(`/comment/${encodeURIComponent(commentId)}`, { method: 'DELETE' });
+}
+
+/** POST /list/{list_id}/task - create task (or subtask if parent set). */
+export interface CreateTaskBody {
+  name: string;
+  description?: string;
+  parent?: string;
+  assignees?: number[];
+  status?: string;
+  priority?: number;
+  due_date?: number;
+  [key: string]: unknown;
+}
+export async function createTask(listId: string, body: CreateTaskBody): Promise<ClickUpTask> {
+  return request<ClickUpTask>(`/list/${encodeURIComponent(listId)}/task`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/** PUT /task/{task_id} - update task (partial). */
+export interface UpdateTaskBody {
+  name?: string;
+  description?: string;
+  status?: string;
+  priority?: number;
+  due_date?: number;
+  [key: string]: unknown;
+}
+export async function updateTask(taskId: string, body: UpdateTaskBody): Promise<ClickUpTask> {
+  return request<ClickUpTask>(`/task/${encodeURIComponent(taskId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+/** DELETE /task/{task_id} - delete task (or subtask). */
+export async function deleteTask(taskId: string): Promise<void> {
+  await request<void>(`/task/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+}
+
+/** Create a subtask under a parent task (resolves list_id from parent). */
+export async function createSubtask(
+  parentTaskId: string,
+  name: string,
+  description?: string
+): Promise<ClickUpTask> {
+  const parent = await getTask(parentTaskId);
+  const listId = (parent as { list?: { id?: string } }).list?.id;
+  if (!listId) throw new ClickUpApiError('Parent task has no list context', 400, 'NO_LIST');
+  return createTask(listId, { name, description, parent: parentTaskId });
 }
 
 /** All lists in a space (folders + folderless lists). Use to find a list by name (e.g. "Automatisierungen"). */
