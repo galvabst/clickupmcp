@@ -7,9 +7,10 @@ import { TEST_LIST_ID } from './config.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 
+// Token nicht beim Start erzwingen: Healthcheck soll immer 200 liefern (Railway).
+// Fehlender Token führt bei /test-tasks und MCP-Tools zu klarer Fehlermeldung.
 if (!process.env.CLICKUP_TOKEN?.trim()) {
-  console.error('CLICKUP_TOKEN is required. Set it in .env or environment.');
-  process.exit(1);
+  console.warn('CLICKUP_TOKEN not set – /health OK, ClickUp tools will fail until set.');
 }
 
 const app = express();
