@@ -9,6 +9,7 @@ import {
   getFolders,
   getLists,
   getTasks,
+  getAllListsInSpace,
   ClickUpApiError,
 } from '../clickup/client.js';
 
@@ -45,6 +46,31 @@ export function createMcpServer(): McpServer {
         return toolResultText(JSON.stringify(data.tasks ?? [], null, 2));
       } catch (err) {
         if (err instanceof ClickUpApiError) {
+          return toolResultError(err.message);
+        }
+        return toolResultError(String(err));
+      }
+    }
+  );
+
+  server.registerTool(
+    'list_clickup_lists_in_space',
+    {
+      description:
+        'List ALL lists in a ClickUp space (all folders combined). Use this to find a list by name (e.g. "Automatisierungen") and get its list_id for get_clickup_tasks. Returns list_id, list_name, folder_name for each list.',
+      inputSchema: {
+        space_id: z.string().describe('ClickUp space ID (e.g. from list_clickup_spaces)'),
+      },
+    },
+    async (args) => {
+      try {
+        const lists = await getAllListsInSpace(args.space_id);
+        return toolResultText(JSON.stringify(lists, null, 2));
+      } catch (err) {
+        if (err instanceof ClickUpApiError) {
+          if (err.statusCode === 404 || err.statusCode === 400) {
+            return toolResultError('Space not found or invalid space_id');
+          }
           return toolResultError(err.message);
         }
         return toolResultError(String(err));

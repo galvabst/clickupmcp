@@ -35,6 +35,7 @@ MCP (Model Context Protocol) server that bridges the Lovable Agent to the ClickU
 - `list_clickup_spaces` – List spaces in a team.
 - `list_clickup_folders` – List folders in a space.
 - `list_clickup_lists` – List lists in a folder.
+- **`list_clickup_lists_in_space`** – All lists in a space (one call). Use to find a list by name (e.g. „Automatisierungen“) and get `list_id` for `get_clickup_tasks`.
 - `get_clickup_tasks` – Get tasks in a list (optional: `page`, `status`).
 
 ## Railway

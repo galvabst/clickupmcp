@@ -114,3 +114,27 @@ export async function getTasks(
   const path = `/list/${encodeURIComponent(listId)}/task${q ? `?${q}` : ''}`;
   return request<ClickUpTasksResponse>(path);
 }
+
+/** All lists in a space (folders + lists flattened). Use to find a list by name (e.g. "Automatisierungen"). */
+export interface ListInSpace {
+  list_id: string;
+  list_name: string;
+  folder_id: string;
+  folder_name: string;
+}
+export async function getAllListsInSpace(spaceId: string): Promise<ListInSpace[]> {
+  const { folders } = await getFolders(spaceId);
+  const out: ListInSpace[] = [];
+  for (const folder of folders ?? []) {
+    const { lists } = await getLists(folder.id);
+    for (const list of lists ?? []) {
+      out.push({
+        list_id: list.id,
+        list_name: list.name ?? '(unnamed)',
+        folder_id: folder.id,
+        folder_name: folder.name ?? '(unnamed)',
+      });
+    }
+  }
+  return out;
+}
