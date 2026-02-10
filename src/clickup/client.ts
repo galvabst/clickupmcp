@@ -102,6 +102,11 @@ export async function getLists(folderId: string): Promise<{ lists: ClickUpList[]
   return request<{ lists: ClickUpList[] }>(`/folder/${encodeURIComponent(folderId)}/list`);
 }
 
+/** GET /space/{space_id}/list - folderless lists (e.g. "Automatisierungen" directly in space) */
+export async function getFolderlessLists(spaceId: string): Promise<{ lists: ClickUpList[] }> {
+  return request<{ lists: ClickUpList[] }>(`/space/${encodeURIComponent(spaceId)}/list`);
+}
+
 /** GET /list/{list_id}/task - optional page (default 0), status filter */
 export async function getTasks(
   listId: string,
@@ -115,7 +120,12 @@ export async function getTasks(
   return request<ClickUpTasksResponse>(path);
 }
 
-/** All lists in a space (folders + lists flattened). Use to find a list by name (e.g. "Automatisierungen"). */
+/** GET /task/{task_id} - single task by ID (e.g. from task URL). */
+export async function getTask(taskId: string): Promise<ClickUpTask> {
+  return request<ClickUpTask>(`/task/${encodeURIComponent(taskId)}`);
+}
+
+/** All lists in a space (folders + folderless lists). Use to find a list by name (e.g. "Automatisierungen"). */
 export interface ListInSpace {
   list_id: string;
   list_name: string;
@@ -123,8 +133,18 @@ export interface ListInSpace {
   folder_name: string;
 }
 export async function getAllListsInSpace(spaceId: string): Promise<ListInSpace[]> {
-  const { folders } = await getFolders(spaceId);
   const out: ListInSpace[] = [];
+  const folderless = { folder_id: '', folder_name: '(folderless)' };
+  const { lists: folderlessLists } = await getFolderlessLists(spaceId);
+  for (const list of folderlessLists ?? []) {
+    out.push({
+      list_id: list.id,
+      list_name: list.name ?? '(unnamed)',
+      folder_id: folderless.folder_id,
+      folder_name: folderless.folder_name,
+    });
+  }
+  const { folders } = await getFolders(spaceId);
   for (const folder of folders ?? []) {
     const { lists } = await getLists(folder.id);
     for (const list of lists ?? []) {

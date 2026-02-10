@@ -9,6 +9,7 @@ import {
   getFolders,
   getLists,
   getTasks,
+  getTask,
   getAllListsInSpace,
   ClickUpApiError,
 } from '../clickup/client.js';
@@ -25,6 +26,31 @@ export function createMcpServer(): McpServer {
   const server = new McpServer(
     { name: 'clickup-mcp-server', version: '1.0.0' },
     { capabilities: {} }
+  );
+
+  server.registerTool(
+    'get_clickup_task',
+    {
+      description:
+        'FASTEST: Get one task by task_id. Use whenever the user has a task link (e.g. https://app.clickup.com/t/86c6p1ach → task_id 86c6p1ach) or task ID. One API call, no list_id or space_id needed. Returns full task (name, status, description, list context). Prefer this over list-based search when a task ID is available.',
+      inputSchema: {
+        task_id: z.string().describe('ClickUp task ID: from URL path after /t/ (e.g. 86c6p1ach) or from API'),
+      },
+    },
+    async (args) => {
+      try {
+        const task = await getTask(args.task_id);
+        return toolResultText(JSON.stringify(task, null, 2));
+      } catch (err) {
+        if (err instanceof ClickUpApiError) {
+          if (err.statusCode === 404 || err.statusCode === 400) {
+            return toolResultError('Task not found or invalid task_id');
+          }
+          return toolResultError(err.message);
+        }
+        return toolResultError(String(err));
+      }
+    }
   );
 
   server.registerTool(
@@ -54,12 +80,51 @@ export function createMcpServer(): McpServer {
   );
 
   server.registerTool(
+    'get_clickup_tasks_by_list_name',
+    {
+      description:
+        'Get all tasks from a list by list name in a space. Includes folderless lists (e.g. "Automatisierungen" in Process Automation space_id 90153503821). One call; no need to walk folders or know list_id.',
+      inputSchema: {
+        space_id: z.string().describe('ClickUp space ID (e.g. 90153503821 for Process Automation)'),
+        list_name: z.string().describe('Exact list name: e.g. "Automatisierungen", "Generelle Prozesse"'),
+        page: z.number().optional().describe('Page number (0-based)'),
+        status: z.string().optional().describe('Filter by status name'),
+      },
+    },
+    async (args) => {
+      try {
+        const lists = await getAllListsInSpace(args.space_id);
+        const nameLower = args.list_name.trim().toLowerCase();
+        const found = lists.find((l) => (l.list_name ?? '').toLowerCase() === nameLower);
+        if (!found) {
+          const names = lists.map((l) => l.list_name).join(', ');
+          return toolResultError(
+            `List "${args.list_name}" not found in space. Available lists: ${names || '(none)'}`
+          );
+        }
+        const data = await getTasks(found.list_id, {
+          page: args.page,
+          status: args.status,
+        });
+        return toolResultText(
+          JSON.stringify({ list_id: found.list_id, list_name: found.list_name, tasks: data.tasks ?? [] }, null, 2)
+        );
+      } catch (err) {
+        if (err instanceof ClickUpApiError) {
+          return toolResultError(err.message);
+        }
+        return toolResultError(String(err));
+      }
+    }
+  );
+
+  server.registerTool(
     'list_clickup_lists_in_space',
     {
       description:
-        'List ALL lists in a ClickUp space (all folders combined). Use this to find a list by name (e.g. "Automatisierungen") and get its list_id for get_clickup_tasks. Returns list_id, list_name, folder_name for each list.',
+        'List ALL lists in a space: folderless lists (e.g. "Automatisierungen") plus lists inside folders. Returns list_id, list_name, folder_name (or "folderless"). Use to find list_id by name or to see available list names for get_clickup_tasks_by_list_name.',
       inputSchema: {
-        space_id: z.string().describe('ClickUp space ID (e.g. from list_clickup_spaces)'),
+        space_id: z.string().describe('ClickUp space ID (e.g. 90153503821 for Process Automation)'),
       },
     },
     async (args) => {
@@ -105,9 +170,10 @@ export function createMcpServer(): McpServer {
   server.registerTool(
     'list_clickup_folders',
     {
-      description: 'List all folders in a ClickUp space.',
+      description:
+        'List all folders in a ClickUp space. Parameter is space_id (not folder_id). Use list_clickup_spaces to get space IDs.',
       inputSchema: {
-        space_id: z.string().describe('ClickUp space ID'),
+        space_id: z.string().describe('ClickUp space ID (from list_clickup_spaces)'),
       },
     },
     async (args) => {
