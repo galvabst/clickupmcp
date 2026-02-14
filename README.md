@@ -22,7 +22,7 @@ MCP (Model Context Protocol) server that bridges the Lovable Agent to the ClickU
 - `GET /health` – Health check (for Railway).
 - `GET /test-tasks` – Tasks der in `src/config.ts` hinterlegten Liste (nur lokales Testen).
 - `GET /test-tasks-by-list?list_name=...&space_id=...` – Tasks einer Liste nach Namen (inkl. folderlose Listen wie „Automatisierungen“).
-- `GET /test-task/:taskId` – Einzelner Task per ID (z.B. `/test-task/86c6p1ach`).
+- `GET /test-task/:taskId` – Einzelner Task (?include_subtasks=true). `GET /test-task-context/:taskId` – Task-Kontext (task + beschreibung + unteraufgaben).
 - **MCP** at `/mcp`:
   - **Streamable HTTP**: `GET` and `POST` to `/mcp` (recommended).
   - **Legacy SSE**: `GET /mcp/sse` to establish stream, then `POST /mcp/message?sessionId=<id>` for messages.
@@ -34,7 +34,8 @@ MCP (Model Context Protocol) server that bridges the Lovable Agent to the ClickU
 
 ## Tools
 
-- **`get_clickup_task`** – Einzelnen Task per `task_id` (inkl. Beschreibung, Status, Liste, Assignees, Custom Fields, Attachments). Optional `include_subtasks=true` für Unteraufgaben.
+- **`get_clickup_task`** – Vollständiger Task per `task_id` (inkl. Beschreibung, Status, Liste, Assignees, Custom Fields, Attachments). Optional `include_subtasks=true`. Enthält keine Kommentare/Activities.
+- **`get_clickup_task_context`** – Strukturierter Kontext für den Agent: task (id, name, status, list), beschreibung, unteraufgaben (id, name, status). Ohne Kommentare/Activities; für klare Trennung.
 - **`get_clickup_tasks_by_list_name`** – Alle Tasks einer Liste nach Namen im Space (inkl. folderlose Listen).
 - **`list_clickup_lists_in_space`** – Alle Listen im Space (folderlos + in Foldern).
 - `get_clickup_tasks` – Tasks einer Liste per `list_id` (optional: `page`, `status`).
@@ -45,9 +46,9 @@ MCP (Model Context Protocol) server that bridges the Lovable Agent to the ClickU
 - `update_clickup_comment` – Kommentar bearbeiten (comment_id, comment_text).
 - `delete_clickup_comment` – Kommentar löschen.
 
-**Subtasks**
-- `get_clickup_subtasks` – Unteraufgaben eines Tasks (Task inkl. `subtasks`-Array).
-- `create_clickup_subtask` – Unteraufgabe anlegen (parent_task_id, name, description optional). List wird aus Parent übernommen.
+**Unteraufgaben**
+- `get_clickup_subtasks` – Unteraufgaben eines Tasks abrufen (Task inkl. `subtasks`-Array).
+- `create_clickup_subtask` – Unteraufgabe anlegen (parent_task_id, name, description optional). Liste wird aus Parent übernommen.
 
 **Task CRUD**
 - `create_clickup_task` – Task in einer Liste anlegen (list_id, name, description, status, priority optional).
@@ -62,7 +63,7 @@ MCP (Model Context Protocol) server that bridges the Lovable Agent to the ClickU
 
 ### Empfohlener Ablauf für den Agent
 
-1. **User hat Task-URL oder Task-ID** → `get_clickup_task(task_id)` (z.B. aus URL `.../t/86c6p1ach` → task_id `86c6p1ach`).
+1. **User hat Task-URL oder Task-ID** → `get_clickup_task(task_id)` oder für klaren Kontext (nur Task + Beschreibung + Unteraufgaben) `get_clickup_task_context(task_id)`.
 2. **User will Tasks aus einer Liste (z.B. „Automatisierungen“)** → `get_clickup_tasks_by_list_name(space_id: "90153503821", list_name: "Automatisierungen")`.
 3. **Listen-Namen unbekannt** → `list_clickup_lists_in_space(space_id: "90153503821")`, dann Liste wählen und `get_clickup_tasks(list_id)` oder `get_clickup_tasks_by_list_name`.
 

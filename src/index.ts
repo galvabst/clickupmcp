@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import { mcpRouter } from './mcp/router.js';
-import { getTasks, getTask, getAllListsInSpace } from './clickup/client.js';
+import { getTasks, getTask, getTaskComments, getAllListsInSpace, buildTaskContext } from './clickup/client.js';
 import { ClickUpApiError } from './clickup/client.js';
 import { TEST_LIST_ID } from './config.js';
 
@@ -57,16 +57,60 @@ app.get('/test-tasks', async (_req, res) => {
   }
 });
 
-/** Local testing: single task by ID. GET /test-task/86c6p1ach */
+/** Local testing: single task by ID. GET /test-task/86c6p1ach or ?include_subtasks=true für Unteraufgaben */
 app.get('/test-task/:taskId', async (req, res) => {
   const taskId = req.params.taskId?.trim();
+  const includeSubtasks = (req.query.include_subtasks as string) === 'true';
   if (!taskId) {
     res.status(400).json({ error: 'taskId required (e.g. /test-task/86c6p1ach)' });
     return;
   }
   try {
-    const task = await getTask(taskId);
+    const task = await getTask(taskId, { include_subtasks: includeSubtasks });
     res.status(200).json(task);
+  } catch (err) {
+    if (err instanceof ClickUpApiError) {
+      if (err.statusCode === 401) res.status(401).json({ error: err.message });
+      else if (err.statusCode === 404 || err.statusCode === 400) res.status(404).json({ error: err.message });
+      else res.status(502).json({ error: err.message });
+      return;
+    }
+    res.status(502).json({ error: err instanceof Error ? err.message : 'ClickUp API error' });
+  }
+});
+
+/** Local testing: task context (task + beschreibung + unteraufgaben). GET /test-task-context/86c6p1ach */
+app.get('/test-task-context/:taskId', async (req, res) => {
+  const taskId = req.params.taskId?.trim();
+  if (!taskId) {
+    res.status(400).json({ error: 'taskId required (e.g. /test-task-context/86c6p1ach)' });
+    return;
+  }
+  try {
+    const task = await getTask(taskId, { include_subtasks: true, include_markdown_description: true });
+    const ctx = buildTaskContext(task);
+    res.status(200).json(ctx);
+  } catch (err) {
+    if (err instanceof ClickUpApiError) {
+      if (err.statusCode === 401) res.status(401).json({ error: err.message });
+      else if (err.statusCode === 404 || err.statusCode === 400) res.status(404).json({ error: err.message });
+      else res.status(502).json({ error: err.message });
+      return;
+    }
+    res.status(502).json({ error: err instanceof Error ? err.message : 'ClickUp API error' });
+  }
+});
+
+/** Local testing: task comments. GET /test-task-comments/86c6p1ach */
+app.get('/test-task-comments/:taskId', async (req, res) => {
+  const taskId = req.params.taskId?.trim();
+  if (!taskId) {
+    res.status(400).json({ error: 'taskId required (e.g. /test-task-comments/86c6p1ach)' });
+    return;
+  }
+  try {
+    const data = await getTaskComments(taskId);
+    res.status(200).json({ comments: data.comments ?? [] });
   } catch (err) {
     if (err instanceof ClickUpApiError) {
       if (err.statusCode === 401) res.status(401).json({ error: err.message });
@@ -129,6 +173,8 @@ app.listen(PORT, () => {
   console.log('  GET /health - health check');
   console.log('  GET /test-tasks - fetch tasks from TEST_LIST_ID (local testing)');
   console.log('  GET /test-tasks-by-list?list_name=... - tasks by list name in Process Automation space');
-  console.log('  GET /test-task/:taskId - single task by ID (e.g. /test-task/86c6p1ach)');
+  console.log('  GET /test-task/:taskId - single task (?include_subtasks=true für Unteraufgaben)');
+  console.log('  GET /test-task-context/:taskId - task context (task + beschreibung + unteraufgaben)');
+  console.log('  GET /test-task-comments/:taskId - task comments');
   console.log('  MCP: Streamable HTTP at /mcp, legacy SSE at /mcp/sse and /mcp/message');
 });

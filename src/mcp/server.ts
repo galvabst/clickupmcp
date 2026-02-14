@@ -19,6 +19,7 @@ import {
   deleteTask,
   createSubtask,
   getAllListsInSpace,
+  buildTaskContext,
   ClickUpApiError,
 } from '../clickup/client.js';
 
@@ -40,16 +41,47 @@ export function createMcpServer(): McpServer {
     'get_clickup_task',
     {
       description:
-        'FASTEST: Get one task by task_id (name, status, description, list, assignees, custom fields, attachments). Set include_subtasks=true to get subtasks in the response.',
+        'Get full task by task_id: name, status, description/text_content, list, assignees, custom fields, attachments. Set include_subtasks=true for Unteraufgaben. Enthält keine Kommentare (dafür get_clickup_task_comments); Activity-Log ist über die API nicht verfügbar. Für klaren Kontext (nur Task + Beschreibung + Unteraufgaben) get_clickup_task_context nutzen.',
       inputSchema: {
-        task_id: z.string().describe('ClickUp task ID (e.g. from URL .../t/86c6p1ach)'),
-        include_subtasks: z.boolean().optional().describe('If true, response includes subtasks array'),
+        task_id: z.string().min(1).describe('ClickUp task ID (e.g. from URL .../t/86c6p1ach)'),
+        include_subtasks: z.boolean().optional().describe('If true, response includes Unteraufgaben (subtasks) array'),
       },
     },
     async (args) => {
       try {
         const task = await getTask(args.task_id, { include_subtasks: args.include_subtasks });
         return toolResultText(JSON.stringify(task, null, 2));
+      } catch (err) {
+        if (err instanceof ClickUpApiError) {
+          if (err.statusCode === 404 || err.statusCode === 400) {
+            return toolResultError('Task not found or invalid task_id');
+          }
+          return toolResultError(err.message);
+        }
+        return toolResultError(String(err));
+      }
+    }
+  );
+
+  server.registerTool(
+    'get_clickup_task_context',
+    {
+      description:
+        'Task-Kontext für den Agent: strukturiert task (id, name, status, list), beschreibung (description/text_content/markdown), unteraufgaben (id, name, status). Enthält bewusst keine Kommentare und keine Activities; für Kommentare get_clickup_task_comments nutzen.',
+      inputSchema: {
+        task_id: z.string().min(1).describe('ClickUp task ID'),
+        include_subtasks: z.boolean().optional().describe('Include Unteraufgaben (default true)'),
+      },
+    },
+    async (args) => {
+      try {
+        const includeSubtasks = args.include_subtasks !== false;
+        const task = await getTask(args.task_id, {
+          include_subtasks: includeSubtasks,
+          include_markdown_description: true,
+        });
+        const ctx = buildTaskContext(task);
+        return toolResultText(JSON.stringify(ctx, null, 2));
       } catch (err) {
         if (err instanceof ClickUpApiError) {
           if (err.statusCode === 404 || err.statusCode === 400) {
@@ -156,9 +188,10 @@ export function createMcpServer(): McpServer {
   server.registerTool(
     'get_clickup_subtasks',
     {
-      description: 'Get subtasks of a task. Returns the task with a subtasks array (if any).',
+      description:
+        'Unteraufgaben eines Tasks abrufen. Liefert den Parent-Task inkl. subtasks-Array (id, name, status, …). Enthält keine Kommentare/Activities.',
       inputSchema: {
-        task_id: z.string().describe('Parent task ID'),
+        task_id: z.string().min(1).describe('Parent task ID'),
       },
     },
     async (args) => {
@@ -177,7 +210,7 @@ export function createMcpServer(): McpServer {
   server.registerTool(
     'create_clickup_task',
     {
-      description: 'Create a new task in a list. For subtask use create_clickup_subtask instead.',
+      description: 'Create a new task in a list. Für Unteraufgabe create_clickup_subtask verwenden.',
       inputSchema: {
         list_id: z.string().describe('ClickUp list ID'),
         name: z.string().describe('Task name'),
@@ -207,11 +240,11 @@ export function createMcpServer(): McpServer {
   server.registerTool(
     'create_clickup_subtask',
     {
-      description: 'Create a subtask under a parent task. Only name required; list is taken from parent.',
+      description: 'Unteraufgabe unter einem Parent-Task anlegen. Nur name nötig; Liste wird vom Parent übernommen.',
       inputSchema: {
         parent_task_id: z.string().describe('Parent task ID'),
-        name: z.string().describe('Subtask name'),
-        description: z.string().optional().describe('Subtask description'),
+        name: z.string().describe('Name der Unteraufgabe'),
+        description: z.string().optional().describe('Beschreibung der Unteraufgabe'),
       },
     },
     async (args) => {
@@ -264,9 +297,9 @@ export function createMcpServer(): McpServer {
   server.registerTool(
     'delete_clickup_task',
     {
-      description: 'Delete a task or subtask. Irreversible.',
+      description: 'Task oder Unteraufgabe löschen. Irreversible.',
       inputSchema: {
-        task_id: z.string().describe('ClickUp task ID (or subtask ID)'),
+        task_id: z.string().describe('ClickUp task ID (oder Unteraufgabe-ID)'),
       },
     },
     async (args) => {

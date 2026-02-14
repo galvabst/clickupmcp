@@ -73,8 +73,12 @@ export interface ClickUpTask {
   name?: string;
   status?: { status?: string };
   description?: string;
+  text_content?: string;
   assignees?: unknown[];
   due_date?: string;
+  /** Present when getTask(..., { include_subtasks: true }) */
+  subtasks?: ClickUpTask[];
+  list?: { id?: string | number; name?: string };
   [key: string]: unknown;
 }
 
@@ -120,15 +124,18 @@ export async function getTasks(
   return request<ClickUpTasksResponse>(path);
 }
 
-/** GET /task/{task_id} - single task by ID. Optionally include subtasks. */
+/** GET /task/{task_id} - single task by ID. Optionally include subtasks and markdown description. */
 export async function getTask(
   taskId: string,
-  opts?: { include_subtasks?: boolean }
+  opts?: { include_subtasks?: boolean; include_markdown_description?: boolean }
 ): Promise<ClickUpTask> {
+  const tid = String(taskId ?? '').trim();
+  if (!tid) throw new ClickUpApiError('task_id is required and must be non-empty', 400, 'INVALID_INPUT');
   const params = new URLSearchParams();
   if (opts?.include_subtasks) params.set('include_subtasks', 'true');
+  if (opts?.include_markdown_description) params.set('include_markdown_description', 'true');
   const q = params.toString();
-  const path = `/task/${encodeURIComponent(taskId)}${q ? `?${q}` : ''}`;
+  const path = `/task/${encodeURIComponent(tid)}${q ? `?${q}` : ''}`;
   return request<ClickUpTask>(path);
 }
 
@@ -218,16 +225,77 @@ export async function deleteTask(taskId: string): Promise<void> {
   await request<void>(`/task/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
 }
 
-/** Create a subtask under a parent task (resolves list_id from parent). */
+/** Create a subtask under a parent task (resolves list_id from parent). Robust: list_id and parent coerced to string. */
 export async function createSubtask(
   parentTaskId: string,
   name: string,
   description?: string
 ): Promise<ClickUpTask> {
-  const parent = await getTask(parentTaskId);
-  const listId = (parent as { list?: { id?: string } }).list?.id;
-  if (!listId) throw new ClickUpApiError('Parent task has no list context', 400, 'NO_LIST');
-  return createTask(listId, { name, description, parent: parentTaskId });
+  const parentId = String(parentTaskId ?? '').trim();
+  if (!parentId) throw new ClickUpApiError('parent_task_id is required and must be non-empty', 400, 'INVALID_INPUT');
+  const taskName = String(name ?? '').trim();
+  if (!taskName) throw new ClickUpApiError('name is required and must be non-empty', 400, 'INVALID_INPUT');
+  const parent = await getTask(parentId);
+  const rawListId = parent.list?.id;
+  if (rawListId === undefined || rawListId === null)
+    throw new ClickUpApiError(`Parent task has no list context (task_id=${parentId}). Cannot create subtask.`, 400, 'NO_LIST');
+  const listId = String(rawListId);
+  const body: CreateTaskBody = { name: taskName, parent: parentId };
+  if (description !== undefined && description !== null) body.description = String(description);
+  return createTask(listId, body);
+}
+
+/** Normalized task context for the agent: task meta, description, Unteraufgaben only. No comments/activities. */
+export interface TaskContextSummary {
+  task: { id: string; name: string; status: string; list_id: string; list_name: string };
+  beschreibung: string;
+  unteraufgaben: Array<{ id: string; name: string; status: string }>;
+  hinweis?: string;
+}
+
+/** Build a stable context object from a raw task. Safe against missing/undefined fields. */
+export function buildTaskContext(task: ClickUpTask): TaskContextSummary {
+  const list = task.list;
+  const listId = list?.id != null ? String(list.id) : '';
+  const listName = typeof list?.name === 'string' ? list.name : '';
+  const statusObj = task.status;
+  const statusStr =
+    statusObj && typeof statusObj === 'object' && typeof (statusObj as { status?: string }).status === 'string'
+      ? (statusObj as { status: string }).status
+      : '';
+  const subs = Array.isArray(task.subtasks) ? task.subtasks : [];
+  const unteraufgaben = subs.map((s) => ({
+    id: String(s?.id ?? ''),
+    name: typeof s?.name === 'string' ? s.name : '',
+    status:
+      s?.status && typeof s.status === 'object' && typeof (s.status as { status?: string }).status === 'string'
+        ? (s.status as { status: string }).status
+        : '',
+  }));
+
+  const raw = task as Record<string, unknown>;
+  const beschreibung =
+    typeof task.description === 'string'
+      ? task.description
+      : typeof raw.text_content === 'string'
+        ? raw.text_content
+        : typeof raw.markdown_description === 'string'
+          ? raw.markdown_description
+          : '';
+
+  return {
+    task: {
+      id: String(task?.id ?? ''),
+      name: typeof task?.name === 'string' ? task.name : '',
+      status: statusStr,
+      list_id: listId,
+      list_name: listName,
+    },
+    beschreibung,
+    unteraufgaben,
+    hinweis:
+      'Für Kommentare: get_clickup_task_comments. Activity-Log ist über die API nicht verfügbar.',
+  };
 }
 
 /** All lists in a space (folders + folderless lists). Use to find a list by name (e.g. "Automatisierungen"). */
